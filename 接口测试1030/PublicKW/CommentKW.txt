@@ -1,0 +1,318 @@
+*** Settings ***
+Library           requests
+Library           json
+Library           RequestsLibrary
+Library           Collections
+Library           demjson
+Resource          ../PublicRC/CommentRC.txt
+Library           urllib2
+Library           pic
+Library           String
+Library           Mytest01
+Library           SmsService
+Library           HttpLibrary.HTTP
+Library           HttpLibrary
+
+*** Keywords ***
+CreateAR
+    [Arguments]    ${URL}    ${header}    ${rest.cookies}    ${NewUploadMD5}
+    ${data}    Create Dictionary    resource_type=0    resource_tag_title=testAPI    file=${NewUploadMD5}    cate_id=${cateId}
+    Create Session    VR    ${URL}    ${header}    cookies=${rest.cookies}
+    ${rest}    Post Request    VR    /web/resource/form    ${data}    headers=${header}
+    log    ${rest.text}
+    Should Be Equal As Strings    ${rest.status_code}    200
+    ${meg}    Set Variable    ${rest.text}
+    log    ${meg}
+    #把json格式转化为字典，然后取值
+    ${meg}    Set Variable    ${rest.text}
+    log    ${meg}
+    ${resultDic}    Evaluate    demjson.decode(u'${meg}')    demjson
+    log    ${resultDic}
+    ${status}    Get From Dictionary    ${resultDic}    status
+    log    ${status}
+    Run Keyword If    '${status}'=='success'    log    返回成功
+    ...    ELSE    fail    返回结果失败
+    #获取resource_id
+    ${resourseId}    Get From Dictionary    ${resultDic['data']['resource_info']}    resource_id
+    [Return]    ${resourseId}
+
+DeleteAR-BAK
+    [Arguments]    ${resultDic}
+    #先从字典中取出列表
+    ${resourseList}    Get From Dictionary    ${resultDic['data']}    resource_list
+    #从列表中取出resourceId、md5的值
+    ${resourceId}    Set Variable    ${resourseList[0]["resource_id"]}
+    log    ${resourceId}
+    ${rest}    Delete Request    VR    /web/resource/form/${resourceId}
+    log    ${rest.text}
+    #把json格式转化为字典，然后取值
+    ${meg}    Set Variable    ${rest.text}
+    log    ${meg}
+    ${resultDic}    Evaluate    demjson.decode(u'${meg}')    demjson
+    log    ${resultDic}
+    ${status}    Get From Dictionary    ${resultDic}    status
+    log    ${status}
+    Run Keyword If    '${status}'=='success'    log    返回成功
+    ...    ELSE    fail    返回结果失败
+
+ComuploadPic
+    [Arguments]    ${filename}    # 图片名称
+    #上传图片
+    ${file}    Evaluate    open(r'${Dir}${filename}','rb')
+    ${files}    Create Dictionary    file    ${file}
+    ${meg}    Post Request    VR    /web/comupload    data=    headers=    files=${files}
+    log    ${meg.text}
+    Should Be Equal As Strings    ${meg.status_code}    200
+    #把json格式转化为字典，然后取值
+    log    获取上传图片的md5、fileid
+    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    log    ${resultDic}
+    ${MD5}    Get From Dictionary    ${resultDic['data']}    md5
+    log    ${MD5}
+    ${fileID}    Get From Dictionary    ${resultDic['data']}    file_id
+    log    ${fileID}
+    [Teardown]
+    [Return]    ${MD5}    ${fileID}
+
+DeleteResourceId
+    [Arguments]    ${URL}    ${resourceID}
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    ${meg}    Delete Request    VR    /web/resource/form/${resourceID}
+    Should Be Equal As Strings    ${meg.status_code}    200
+
+StatusCode
+    [Arguments]    ${PictureNname}    # 图片名称如：xxx.jgp
+    #检索
+    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    ${filename}    Set Variable    ${PictureNname}
+    ${filePath}    Set Variable    ${Dir}${PictureNname}
+    log    发布成功后，资源文件生成需要一定时间，循环1min判断检索时是否出现资源文件。
+    : FOR    ${i}    IN RANGE    60
+    \    ${meg}    Formdata    ${body}    pic    ${filename}    ${filePath}
+    \    ...    url=${URL}/api/resource/search
+    \    log    ${meg.status_code}
+    \    Run Keyword If    "${meg.status_code}"=="200"    Exit For Loop
+    log    debug
+    log    ${meg.text}
+    [Return]    ${meg.status_code}    ${meg.text}
+
+GetHost
+    [Arguments]    ${meg.text}
+    #把json格式转化为字典，然后取值
+    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    ${MD5}    Get From Dictionary    ${resultDic}    md5
+    ${Template_ZIP}    Get From Dictionary    ${resultDic}    ${TemplateZIPSrc}
+    #提取host
+    ${templateCount}    Split String    ${Template_ZIP}    /
+    ${templateCount1}    Get From List    ${templateCount}    0
+    ${templateCount2}    Get From List    ${templateCount}    2
+    log    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    ${TemplateZIPSrcURL}    Set Variable    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    [Return]    ${MD5}    ${TemplateZIPSrcURL}
+
+StatusCode0927
+    [Arguments]    ${PictureNname}    ${fail_message}    ${success_message }    ${node }    ${project }    # 图片名称如：xxx.jgp|失败信息|成功信息|节点|工程主题
+    #检索
+    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    ${filename}    Set Variable    ${PictureNname}
+    ${filePath}    Set Variable    ${Dir}${PictureNname}
+    log    发布成功后，资源文件生成需要一定时间，循环1min判断检索时是否出现资源文件。
+    : FOR    ${i}    IN RANGE    10
+    \    sleep    1
+    \    log    ${i}
+    \    ${meg}    Formdata    ${body}    pic    ${filename}    ${filePath}
+    \    ...    url=${URL}/api/resource/search
+    \    log    ${meg.status_code}
+    \    Run Keyword If    "${meg.status_code}"=="200"    Exit For Loop
+    Comment    Send Notify Msg    ${phone}    ${fail_message}    ${success_message }    ${meg.status_code}    ${node }
+    ...    ${project }
+    Should Be Equal As Strings    ${meg.status_code}    200
+    [Return]    ${meg}
+
+GetHostNew
+    [Arguments]    ${meg.text}
+    #把json格式转化为字典，然后取值
+    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    ${MD5}    Get From Dictionary    ${resultDic}    md5
+    ${TemplateZIPSrcURL}    Get From Dictionary    ${resultDic}    ${TemplateZIPSrc}
+    Comment    #提取host
+    Comment    ${templateCount}    Split String    ${Template_ZIP}    /
+    Comment    ${templateCount1}    Get From List    ${templateCount}    0
+    Comment    ${templateCount2}    Get From List    ${templateCount}    2
+    Comment    log    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    Comment    ${TemplateZIPSrcURL}    Set Variable    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    [Return]    ${MD5}    ${TemplateZIPSrcURL}
+
+SearchAR_YM
+    [Arguments]    ${name}    ${URL}    # 图片名称如：xxx.jgp|失败信息|成功信息|节点|工程主题| ${fail_message} | ${success_message } | ${node } | ${project }
+    log    检索
+    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    ${filename}    Set Variable    ${name}
+    ${filePath}    Set Variable    ${Dir}${name}
+    : FOR    ${index}    IN RANGE    60
+    \    sleep    1s
+    \    log    ${index}
+    \    ${meg}    Formdata    ${body}    pic    ${filename}    ${filePath}
+    \    ...    url=${URL}${Search}
+    \    log    ${meg.status_code}
+    \    Comment    Send Notify Msg    ${phone}    域名节点检索失败！    yeah~域名节点检索成功！    ${meg.status_code}
+    \    ...    yuming    search_${name}
+    \    Should Be Equal As Strings    ${meg.status_code}    200
+    \    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    \    ${if_ar}    Get From Dictionary    ${resultDic}    if_ar
+    \    Run Keyword If    '${if_ar}'=='True'    Exit For Loop
+    #从关键字gethost里面取出md5和template的url
+    @{list}    GetHostNew    ${meg.text}
+    ${MD5}    Get From List    ${list}    0
+    ${TemplateZIPSrcURL}    Get From List    ${list}    1
+    #校验模板是否能下载，若能下载，说明可以叠加成功。
+    ${Zip_mesg}    Get HTTP Zip By Requests    ${TemplateZIPSrcURL}
+    Comment    Send Notify Msg    ${phone}    域名节点叠加失败！    yeah~域名节点叠加成功！    ${Zip_mesg.status_code}    yuming
+    ...    diejia_${name}
+    Should Be Equal As Strings    ${Zip_mesg.status_code}    200
+    #识别成功后，下载动画，校验是否叠加成功
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${Animation_mesg}    Get Request    VR    ${Animation_v4}${MD5}?imei=${xiaomiIMEI}
+    Comment    Send Notify Msg    ${phone}    域名节点动画下载失败！    yeah~域名节点下载成功！    ${Animation_mesg.status_code}    yuming
+    ...    download_${name}
+    Should Be Equal As Strings    ${Animation_mesg.status_code}    200
+
+SearchAR_DX
+    [Arguments]    ${name}    ${URL}    # 图片名称如：xxx.jgp|失败信息|成功信息|节点|工程主题| ${fail_message} | ${success_message } | ${node } | ${project }
+    log    检索
+    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    ${filename}    Set Variable    ${name}
+    ${filePath}    Set Variable    ${Dir}${name}
+    : FOR    ${index}    IN RANGE    60
+    \    sleep    1s
+    \    log    ${index}
+    \    ${meg}    Formdata    ${body}    pic    ${filename}    ${filePath}
+    \    ...    url=${URL}${Search}
+    \    log    ${meg.status_code}
+    \    Comment    Send Notify Msg    ${phone}    电信节点检索失败！    yeah~电信节点检索成功！    ${meg.status_code}
+    \    ...    dianxin    search_${name}
+    \    Should Be Equal As Strings    ${meg.status_code}    200
+    \    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    \    ${if_ar}    Get From Dictionary    ${resultDic}    if_ar
+    \    Run Keyword If    '${if_ar}'=='True'    Exit For Loop
+    #从关键字gethost里面取出md5和template的url
+    @{list}    GetHostNew    ${meg.text}
+    ${MD5}    Get From List    ${list}    0
+    ${TemplateZIPSrcURL}    Get From List    ${list}    1
+    #校验模板是否能下载，若能下载，说明可以叠加成功。
+    ${Zip_mesg}    Get HTTP Zip By Requests    ${TemplateZIPSrcURL}
+    Comment    Send Notify Msg    ${phone}    电信节点叠加失败！    yeah~电信节点叠加成功！    ${Zip_mesg.status_code}    dianxin
+    ...    diejia_${name}
+    Should Be Equal As Strings    ${Zip_mesg.status_code}    200
+    #识别成功后，下载动画，校验是否叠加成功
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${Animation_mesg}    Get Request    VR    ${Animation_v4}${MD5}?imei=${xiaomiIMEI}
+    Send Notify Msg    ${phone}    电信节点动画下载失败！    yeah~电信节点下载成功！    ${Animation_mesg.status_code}    dianxin    download_${name}
+    Should Be Equal As Strings    ${Animation_mesg.status_code}    200
+
+SearchAR_YD
+    [Arguments]    ${name}    ${URL}    # 图片名称如：xxx.jgp|失败信息|成功信息|节点|工程主题| ${fail_message} | ${success_message } | ${node } | ${project }
+    log    检索
+    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    ${filename}    Set Variable    ${name}
+    ${filePath}    Set Variable    ${Dir}${name}
+    : FOR    ${index}    IN RANGE    60
+    \    sleep    1s
+    \    log    ${index}
+    \    ${meg}    Formdata    ${body}    pic    ${filename}    ${filePath}
+    \    ...    url=${URL}${Search}
+    \    log    ${meg.status_code}
+    \    Comment    Send Notify Msg    ${phone}    移动节点检索失败！    yeah~移动节点检索成功！    ${meg.status_code}
+    \    ...    yidong    search_${name}
+    \    Should Be Equal As Strings    ${meg.status_code}    200
+    \    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    \    ${if_ar}    Get From Dictionary    ${resultDic}    if_ar
+    \    Run Keyword If    '${if_ar}'=='True'    Exit For Loop
+    #从关键字gethost里面取出md5和template的url
+    @{list}    GetHostNew    ${meg.text}
+    ${MD5}    Get From List    ${list}    0
+    ${TemplateZIPSrcURL}    Get From List    ${list}    1
+    #校验模板是否能下载，若能下载，说明可以叠加成功。
+    ${Zip_mesg}    Get HTTP Zip By Requests    ${TemplateZIPSrcURL}
+    Comment    Send Notify Msg    ${phone}    移动点叠加失败！    yeah~移动节点叠加成功！    ${Zip_mesg.status_code}    yidong
+    ...    diejia_${name}
+    Should Be Equal As Strings    ${Zip_mesg.status_code}    200
+    #识别成功后，下载动画，校验是否叠加成功
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${Animation_mesg}    Get Request    VR    ${Animation_v4}${MD5}?imei=${xiaomiIMEI}
+    Comment    Send Notify Msg    ${phone}    移动节点动画下载失败！    yeah~移动节点下载成功！    ${Animation_mesg.status_code}    yidong
+    ...    download_${name}
+    Should Be Equal As Strings    ${Animation_mesg.status_code}    200
+
+GetCookies
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    [Return]    ${rest.cookies}
+
+CheckStartPoint
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    [Return]    ${rest.cookies}
+
+DeleteAR
+    [Arguments]    ${rest.text}
+    #####
+    ${resourceIdnum}    Get Json Value    ${rest.text}    /data/resource_list/resource_id
+    ${resourceId}    Load Json    ${resourceIdnum}
+    log    ${resourceId}
+    ${result}    Delete Request    VR    /web/resource/form/${resourceId}
+    log    ${result.text}
+    #把json格式转化为字典，然后取值
+    ${statusNum}    Get Json Value    ${result.text}    /status
+    ${status}    Load Json    ${statusNum}
+    log    ${status}
+    Run Keyword If    '${status}'=='success'    log    返回成功
+    ...    ELSE    fail    返回结果失败
+
+Login_web
+    [Arguments]    ${URI}
+    log    登录获取cookies
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}
+    ${Resp}    Post Request    VR    ${URI}    data=${data}    headers=${header}
+    log    ${Resp.cookies}
+    Return From Keyword    ${Resp}
+
+Check_API_Response
+    [Arguments]    ${Resp}    ${status_code}=200
+    log    校验接口的返回码和返回状态值
+    #校验接口返回码
+    Should Be Equal As Strings    ${status_code}    ${Resp.status_code}    【接口返回码错误，接口异常请定位】
+    #校验返回状态
+    ${status_msg}    Get Json Value    ${Resp.text}    /status
+    ${Status_msg}    Load Json    ${status_msg}
+    Run Keyword If    "${Status_msg}"=="success"    log    返回值成功
+    ...    ELSE IF    fail    返回值失败，请定位问题！
+
+web_check_irsearch
+    [Arguments]    ${MD5}    ${fileID}    ${URL}    ${URI}    ${Resp}
+    #创建之前先判断该作品是否存在，存在则删除。
+    ${data}    Create Dictionary    md5=${MD5}    file_id=${fileID}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${URL}    ${header}    cookies=${Resp.cookies}
+    ${Resp_irsearch}    Post Request    VR    /web/irsearch    ${data}
+    log    ${Resp_irsearch.cookies}
+    Return From Keyword    ${Resp_irsearch}

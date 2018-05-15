@@ -1,0 +1,240 @@
+*** Settings ***
+Suite Teardown    Delete All Sessions
+Library           requests
+Library           json
+Library           RequestsLibrary
+Library           Collections
+Library           demjson
+Resource          ././PublicKW/CommentKW.txt
+Resource          ././PublicRC/CommentRC.txt
+Library           urllib2
+Library           pic
+Library           String
+Library           Mytest01
+Library           SmsService
+
+*** Test Cases ***
+YD-新建主题识别
+    [Documentation]    2017-09-01 \ author：liqiong
+    ...
+    ...    说明：
+    ...
+    ...    1.登录获取cookies；
+    ...    2.创建之前先判断是否存在相同md5的作品，存在则删除；
+    ...    3.新建一个作品（该作品是固定的图片）；
+    ...    3.发布作品；
+    ...    4.发布作品成功后，才能通过客户端接口去检索该图片的template资源，查看template资源是否能下载成功，则证明可以叠加成功。反之，则说明template资源丢失，无法叠加；
+    ...    5.通过下载动画，校验AR数据是否下载成功；
+    ...
+    ...    备注：检索后返回的字段“if_AR=false”，说明template资源没有生成。
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${YDURL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    #编辑图片，创建一个不同的md5
+    ${in_file}    Evaluate    open(r'${Dir}\yidong.jpg','rb')
+    Save Image    ${in_file}    ${Dir}${YDPicNname}
+    log    上传图片
+    @{list}    ComuploadPic    ${YDPicNname}
+    ${MD5}    Get From List    ${list}    0
+    log    ${MD5}
+    ${fileID}    Get From List    ${list}    1
+    log    ${fileID}
+    #创建之前先判断该作品是否存在，存在则删除。
+    ${data}    Create Dictionary    md5=${MD5}    file_id=${fileID}
+    Create Session    VR    ${YDURL}    ${header}    cookies=${rest.cookies}
+    ${rest}    Post Request    VR    /web/irsearch    ${data}
+    Should Be Equal As Strings    ${rest.status_code}    200
+    ${meg}    Set Variable    ${rest.text}
+    log    ${meg}
+    #把json格式转化为字典，然后取值
+    ${resultDic}    Evaluate    demjson.decode(u'${meg}')    demjson
+    log    ${resultDic}
+    #先从字典中取出列表
+    ${resource_list}    Get From Dictionary    ${resultDic['data']}    resource_list
+    ${lengthList}    Get Length    ${resource_list}
+    log    ${lengthList}
+    Run Keyword If    ${lengthList}!=0    Run Keyword    DeleteAR-BAK    ${resultDic}
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${YDURL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    log    创建
+    ${resourceID}    CreateAR    ${YDURL}    ${header}    ${rest.cookies}    ${MD5}
+    log    ${resourceID}
+    log    发布作品
+    ${data}    Create Dictionary    if_custom_published=3    if_random=3
+    ${result}    Put Request    VR    /web/resource/form/${resourceID}    data=${data}    headers=${header}
+    Should Be Equal As Strings    ${result.status_code}    200
+    #把json格式转化为字典，然后取值
+    ${meg}    Set Variable    ${result.text}
+    log    ${meg}
+    ${resultDic}    Evaluate    demjson.decode(u'${meg}')    demjson
+    log    ${resultDic}
+    ${resourceID}    Get From Dictionary    ${resultDic['data']}    resource_id
+    log    ${resourceID}
+    ${PublishedStatus}    Get From Dictionary    ${resultDic['data']}    if_custom_published
+    log    ${PublishedStatus}
+    Run Keyword If    '${PublishedStatus}'=='1'    log    发布成功
+    ...    ELSE    fail    发布失败，请定位问题。
+    #检索
+    Comment    Comment    ${body}    Create Dictionary    imei    ${xiaomiIMEI}
+    Comment    Comment    ${filename}    Set Variable    ${YDPicNname}
+    Comment    Comment    ${filePath}    Set Variable    ${Dir}${YDPicNname}
+    Comment    log    发布成功后，资源文件生成需要一定时间，循环1min判断检索时是否出现资源文件。
+    Comment    : FOR    ${i}    IN RANGE    60
+    Comment    \    sleep    1s
+    Comment    \    log    ${i}
+    Comment    \    @{list}    StatusCode    ${YDPicNname}
+    Comment    \    ${meg.status_code}    Get From List    ${list}    0
+    Comment    \    log    ${meg.status_code}
+    Comment    \    Send Notify Msg    ${phone}    移动节点检索失败！    yeah~检索成功！    ${meg.status_code}
+    ...    yidong    search_new
+    Comment    \    Should Be Equal As Strings    ${meg.status_code}    200
+    Comment    \    ${meg.text}    Get From List    ${list}    1
+    Comment    \    log    ${meg.text}
+    Comment    \    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    Comment    \    ${if_ar}    Get From Dictionary    ${resultDic}    if_ar
+    Comment    \    Run Keyword If    '${if_ar}'=='True'    Exit For Loop
+    Comment    #把json格式转化为字典，然后取值
+    Comment    ${resultDic}    Evaluate    demjson.decode(u'${meg.text}')    demjson
+    Comment    ${Template_ZIP}    Get From Dictionary    ${resultDic}    ${TemplateZIPSrc}
+    Comment    #提取host
+    Comment    ${templateCount}    Split String    ${Template_ZIP}    /
+    Comment    ${templateCount1}    Get From List    ${templateCount}    0
+    Comment    ${templateCount2}    Get From List    ${templateCount}    2
+    Comment    #校验模板是否能下载，若能下载，说明可以叠加成功。
+    Comment    LOG    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    Comment    ${meg}    Get HTTP Zip By Requests    ${templateCount1}//${templateCount2}/${MD5}.jpg
+    Comment    Send Notify Msg    ${phone}    移动节点叠加失败！    yeah~叠加成功！    ${meg.status_code}    yidong
+    ...    diejia_new
+    Comment    Should Be Equal As Strings    ${meg.status_code}    200
+    Comment    #识别成功后，下载动画，校验是否叠加成功
+    Comment    ${meg}    Get Request    VR    /api/resource/animation_v4/${MD5}?imei=${xiaomiIMEI}
+    Comment    Comment    Send Notify Msg    ${phone}    移动节点动画下载失败！    yeah~下载成功！    ${meg.status_code}
+    ...    yidong    download_new
+    Comment    Should Be Equal As Strings    ${meg.status_code}    200
+    ###检索、重叠、下载
+    ${PictureName}    Set Variable    ${YDPicNname}
+    log    发布成功后，资源文件生成需要一定时间，循环1min判断检索时是否出现资源文件。
+    : FOR    ${index}    ${name}    IN ENUMERATE    ${PictureName}
+    \    log    ${index}${name}
+    \    SearchAR_YD    ${name}    ${URL}
+    Delete All Sessions
+    [Teardown]    DeleteResourceId    ${YDURL}    ${resourceID}
+
+YD-星圈-集邮主题识别
+    [Documentation]    2017-09-29 \ author：liqiong
+    ...
+    ...    说明：星圈、集邮、SDK开发者中的主题识别
+    ...
+    ...    1.星圈主题【情圣】md5=3b688962650ba44230ccac3f34defc3b_jpg
+    ...    2.星圈主题【速度与激情8】md5=06fe189276e05b77d4595eaaec6fdc76_jpg
+    ...    3.集邮主题【中秋月圆】md5=5692710732c211752fabfb6bb2267875_jpg
+    ...    4.集邮主题【男子接力】md5=a5128d0f0820614652849238b48619c4_jpg
+    #检索、重叠、下载
+    ${PictureName}    Set Variable    qingsheng.jpg    su8.jpg    zhongqiu.jpg    man.jpg    bicycle.jpg
+    log    循环判断主题作品
+    : FOR    ${index}    ${name}    IN ENUMERATE    @{PictureName}
+    \    log    ${index}${name}
+    \    SearchAR_YM    ${name}    ${YDURL}
+
+离线包下载校验
+    [Documentation]    2017-12-08 \ author：liqiong
+    ...
+    ...    说明：
+    ...
+    ...    1.登录获取cookies；
+    ...    2.固定一个主题，获取下载离线包数据，通过离线包的单号issue，查询下载状态，判断process=1，说明下载成功。
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${YDURL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    #下载离线包数据
+    ${rest}    Get Request    VR    /api/output/resource/re?ids=${YD_ids}&auth=123
+    Should Be Equal As Strings    ${rest.status_code}    200
+    ###从列表中获取字典的值
+    ${list}    Get Json Value    ${rest.text}    /data/issue
+    ${issue_num}    Load Json    ${list}
+    #循环判断下载的离线包是否成功
+    : FOR    ${index}    IN RANGE    120
+    \    sleep    3s
+    \    ${flag}    Set Variable    0
+    \    ${rest}    Get Request    VR    /api/output/resource/state?issue=${issue_num}&auth=123
+    \    Should Be Equal As Strings    ${rest.status_code}    200
+    \    ###从列表中获取字典的值
+    \    ${list}    Get Json Value    ${rest.text}    /data/process
+    \    ${process_mesg}    Load Json    ${list}
+    \    Run Keyword If    '${process_mesg}'=='1.0'    Exit For Loop
+    \    ${flag}    Set Variable    1
+    ####
+    Run Keyword If    '${flag}'=='1'    fail    10min还没有下载完成，有异常，请排查！！！
+    ...    ELSE    log    离线包数据下载成功~~~
+    [Teardown]
+
+AR效果显示
+    [Documentation]    2017-12-12 \ author：liqiong
+    ...
+    ...    说明：
+    ...
+    ...    1.新生成一个作品，校验是否有AR星级效果展示；判断完成后删除作品；
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${YDURL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    #编辑图片
+    ${infilename}    Set Variable    INstartTest.jpg
+    ${outPicNname}    Set Variable    OUTstartTest.jpg
+    log    编辑图片，创建一个不同的md5
+    ${in_file}    Evaluate    open(r'${Dir}\INstartTest.jpg','rb')
+    Save Image    ${in_file}    ${Dir}${outPicNname}
+    log    上传图片
+    @{list}    ComuploadPic    ${outPicNname}
+    ${MD5}    Get From List    ${list}    0
+    log    ${MD5}
+    ${fileID}    Get From List    ${list}    1
+    log    ${fileID}
+    #创建之前先判断该作品是否存在，存在则删除。
+    ${data}    Create Dictionary    md5=${MD5}    file_id=${fileID}
+    Create Session    VR    ${YDURL}    ${header}    cookies=${rest.cookies}
+    ${rest}    Post Request    VR    /web/irsearch    ${data}
+    Should Be Equal As Strings    ${rest.status_code}    200
+    ###从列表中获取字典的值
+    ${list}    Get Json Value    ${rest.text}    /data/resource_list
+    ${resource_list}    Load Json    ${list}
+    ${lengthList}    Get Length    ${resource_list}
+    log    ${lengthList}
+    Run Keyword If    ${lengthList}!=0    Run Keyword    DeleteAR-BAK    ${rest.text}
+    #登录获取cookies
+    ${data}    Create Dictionary    editor_name=${username}    remember=1    editor_password=${PWD}
+    ${header}    Create Dictionary    content-type=${Type}
+    Create Session    VR    ${YDURL}    ${header}
+    ${rest}    Post Request    VR    /web/user/login    data=${data}    headers=${header}
+    log    ${rest.cookies}
+    log    创建
+    ${resourceID}    CreateAR    ${YDURL}    ${header}    ${rest.cookies}    ${MD5}
+    log    ${resourceID}
+    #查询AR效果效果
+    log    根据md5查询AR效果效果是否显示成功
+    : FOR    ${index}    IN RANGE    120
+    \    sleep    3s
+    \    ${flag}    Set Variable    0
+    \    ${mesg}    Get Request    VR    /web/resource/fPoints/${MD5}
+    \    Should Be Equal As Strings    ${mesg.status_code}    200
+    \    ###从列表中获取字典的值
+    \    ${list}    Get Json Value    ${mesg.text}    /status
+    \    ${status}    Load Json    ${list}
+    \    Run Keyword If    '${status}'=='success'    Exit For Loop
+    \    ${flag}    Set Variable    1
+    ####
+    Run Keyword If    '${flag}'=='1'    fail    10min还没有显示星级，有异常，请排查！！！
+    ...    ELSE    log    AR效果效果生成成功！！
+    [Teardown]    DeleteResourceId    ${YDURL}    ${resourceID}

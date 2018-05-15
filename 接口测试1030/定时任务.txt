@@ -1,0 +1,46 @@
+*** Settings ***
+Library           requests
+Library           json
+Library           RequestsLibrary
+Library           Collections
+Library           demjson
+Resource          ././PublicKW/CommentKW.txt
+Resource          ././PublicRC/CommentRC.txt
+Library           urllib2
+Library           String
+Library           pic
+Library           Mytest01
+Library           SmsService
+
+*** Test Cases ***
+YD-Search
+    [Documentation]    2017-09-29\ author：liqiong
+    ...
+    ...    说明：
+    ...
+    ...    1.识检索开发者网站的轿车主题；
+    ...    2.获取返回值中的md5和template中的host；
+    ...    3.拼接成一个URL地址，用get方法访问成功，返回200，则叠加成功；
+    ...
+    ...    备注：检索后返回的字段“if_AR=false”，说明template资源没有生成。
+    #检索、重叠、下载
+    ${PictureName}    Set Variable    search.jpg
+    : FOR    ${index}    ${name}    IN ENUMERATE    ${PictureName}
+    \    log    ${index}${name}
+    \    SearchAR_YD    ${name}    ${YDURL}
+
+YM-Search
+    [Documentation]    2017-09-29\ author：liqiong
+    ...
+    ...    说明：
+    ...
+    ...    1.识检索开发者网站的轿车主题；
+    ...    2.获取返回值中的md5和template中的host；
+    ...    3.拼接成一个URL地址，用get方法访问成功，返回200，则叠加成功；
+    ...
+    ...    备注：检索后返回的字段“if_AR=false”，说明template资源没有生成。
+    #检索、重叠、下载
+    ${PictureName}    Set Variable    search.jpg
+    : FOR    ${index}    ${name}    IN ENUMERATE    ${PictureName}
+    \    log    ${index}${name}
+    \    SearchAR_YM    ${name}    ${URL}
